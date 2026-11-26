@@ -24,7 +24,7 @@ It supports **[Google Flow](https://flow.google.com/) / Gemini Agent** cloud gen
   - `shotflow doctor` (verifies Node, FFmpeg, `edge-tts`, `yt-dlp`, and Chrome/Chromium)
 - `scripts/setup.sh`: Idempotent dependency checker and installer (`--check`, `--mode 5a`, `--mode 5b`, `--mode ref`, `--mode all`).
 - `scripts/analyze_ref_video.py`: Track C reference-video analyzer (auto-scaled frames capped at 100 frames / 2 fps, optional `--start`/`--end`, plus time-synced captions).
-- `scripts/render_ffmpeg.sh`: Mode 5A pure-FFmpeg Ken Burns + TTS + BGM + SRT renderer.
+- `scripts/render_ffmpeg.sh`: Mode 5A pure-FFmpeg Ken Burns + TTS + BGM + SRT renderer (auto-falls back to soft `mov_text` subtitles when FFmpeg lacks `libass`).
 
 ## Input Track Detection (Automatic)
 
@@ -56,12 +56,14 @@ Before generating the full output, verify whether the user has provided:
 
 > If any required parameter (Segment Count, Aspect Ratio, Style, Mode, Language, or Target Model) is missing, ask concisely in a single bulleted message—including your recommended model(s)—before generating. Once confirmed (or if the user asks to proceed with defaults), output **all sections below in a single, complete response** tailored to the selected model(s).
 
-## Pre-Flight Environment Setup (Modes 5A, 5B & Track C)
+## Pre-Flight Environment Setup & Staging (Modes 5A, 5B & Track C)
 
 Whenever **Mode 5A**, **Mode 5B**, or **Track C** requires local execution:
-1. Run `./scripts/setup.sh --check --mode <5a|5b|ref>` (or `node bin/shotflow.mjs doctor`) first.
-2. If any required tool is missing, run `./scripts/setup.sh --mode <5a|5b|ref>`.
-3. Isolate `edge-tts` in `~/.shotflow-venv` (fall back to macOS `say` if needed).
+1. **Stage in a Connected User Folder**: Always create project folders and scripts inside a user-accessible connected folder (e.g., `~/Development/shotflow/<project>`), never only in an internal agent scratch directory, and always share clickable `file://` links to scripts and outputs (`final.mp4`, `sheet.jpg`).
+2. **Pre-Flight Check**: Run `./scripts/setup.sh --check --mode <5a|5b|ref>` (or `node bin/shotflow.mjs doctor`) first.
+3. **Sandbox Fallback for Homebrew**: If `./scripts/setup.sh` cannot write to `/opt/homebrew` from a sandboxed agent shell, immediately give the user the exact 1-line Terminal command (`cd <repo_path> && ./scripts/setup.sh --mode <5a|5b|ref>`) so they can run it in their own Terminal.
+4. **Venv Isolation**: Isolate `edge-tts` in `~/.shotflow-venv` (fall back to macOS `say` if needed).
+5. **Inline Image Staging (Mode 5A)**: When generating keyframe images inline in chat, explicitly tell the user they are displayed inline (not auto-saved to disk) and instruct them to download into `<project_dir>` (or `~/Desktop` / `~/Downloads`). On follow-up, automatically scan `~/Desktop` and `~/Downloads` for `p01.*`–`p[N].*` (`.png`, `.jpg`, `.jpeg`, `.webp`), copy them into `<project_dir>`, render `final.mp4`, and run `shotflow check`.
 
 ## Steps
 

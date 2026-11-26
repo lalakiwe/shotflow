@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
-export PATH="/opt/homebrew/bin:/usr/local/bin:${SHOTFLOW_VENV_DIR:-$HOME/.shotflow-venv}/bin:$PATH"
+REAL_HOME="$(eval echo "~$(id -un)" 2>/dev/null || echo "$HOME")"
+VENV_DIR="${SHOTFLOW_VENV_DIR:-$HOME/.shotflow-venv}"
+[[ ! -d "$VENV_DIR" && -d "$REAL_HOME/.shotflow-venv" ]] && VENV_DIR="$REAL_HOME/.shotflow-venv"
+export PATH="/opt/homebrew/bin:/usr/local/bin:$VENV_DIR/bin:$REAL_HOME/.shotflow-venv/bin:$PATH"
 
 # ShotFlow Local Render & Reference-Video Setup Script
 # Installs and verifies local dependencies for:
@@ -18,7 +21,6 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:${SHOTFLOW_VENV_DIR:-$HOME/.shotfl
 MODE="all"
 CHECK_ONLY=false
 WITH_REMOTION=false
-VENV_DIR="${SHOTFLOW_VENV_DIR:-$HOME/.shotflow-venv}"
 
 usage() {
   cat <<'EOF'
