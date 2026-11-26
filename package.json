@@ -1,7 +1,7 @@
 {
   "name": "shotflow",
-  "version": "1.0.0",
-  "description": "AI short-video script, storyboard, reference-video analyzer, and standalone local MP4 rendering engine (FFmpeg + Playwright + edge-tts).",
+  "version": "1.1.0",
+  "description": "AI short-video script, storyboard, reference-video analyzer, and standalone local MP4/GIF/MOV rendering engine (FFmpeg + Playwright + edge-tts + runtime assets).",
   "type": "module",
   "bin": {
     "shotflow": "bin/shotflow.mjs"
@@ -14,6 +14,9 @@
     "test": "node --test test/*.test.mjs"
   },
   "dependencies": {
-    "playwright-core": "^1.52.0"
+    "katex": "^0.16.22",
+    "lucide-static": "^0.511.0",
+    "playwright-core": "^1.52.0",
+    "roughjs": "^4.6.6"
   }
 }

@@ -5,15 +5,17 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { FORMATS, LOOKS, SIZES, createStarterProject } from "../engine/presets.mjs";
 import { captureSite } from "../engine/capture.mjs";
+import { recordSite } from "../engine/record.mjs";
 import { renderProject } from "../engine/renderer.mjs";
 import { checkVideo } from "../engine/check.mjs";
 
-const USAGE = `ShotFlow Native Engine (v1.0.0)
+const USAGE = `ShotFlow Native Engine (v1.1.0)
 
 Usage:
   shotflow init <dir> [--format product-launch|narrated-explainer|vertical-short] [--look midnight|studio|editorial|blueprint] [--size 16:9|9:16|4:5|1:1] [--lang en|zh-TW]
   shotflow capture <url> --out <dir>
-  shotflow render <dir> [--size 16:9|9:16|4:5|1:1] [--fps 30] [--voice <edge-tts-voice>] [--no-tts]
+  shotflow record <url> --out <dir> [--steps steps.json] [--duration 6]
+  shotflow render <dir> [--size 16:9|9:16|4:5|1:1] [--format mp4|gif|mov] [--transparent] [--fps 30] [--voice <edge-tts-voice>] [--no-tts]
   shotflow check <video.mp4> [--json] [--contact-sheet <out.jpg>]
   shotflow doctor
   shotflow --help
@@ -108,13 +110,33 @@ async function main() {
     const { values, positionals } = parseArgs({
       args: rest,
       allowPositionals: true,
-      options: {
-        out: { type: "string", default: "./capture_assets" },
-      },
+      options: { out: { type: "string", default: "./capture_assets" } },
     });
     const url = positionals[0];
     if (!url) throw new Error("Missing URL: shotflow capture <url> --out <dir>");
     const result = await captureSite(url, path.resolve(values.out), { chromePath: findChrome() });
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  if (command === "record") {
+    const { values, positionals } = parseArgs({
+      args: rest,
+      allowPositionals: true,
+      options: {
+        out: { type: "string", default: "./recorded_assets" },
+        steps: { type: "string" },
+        duration: { type: "string", default: "6" },
+      },
+    });
+    const url = positionals[0];
+    if (!url) throw new Error("Missing URL: shotflow record <url> --out <dir>");
+    const steps = values.steps ? JSON.parse(fs.readFileSync(path.resolve(values.steps), "utf8")) : [];
+    const result = await recordSite(url, path.resolve(values.out), {
+      steps,
+      durationSec: Number(values.duration),
+      chromePath: findChrome(),
+    });
     console.log(JSON.stringify(result, null, 2));
     return;
   }
@@ -125,6 +147,8 @@ async function main() {
       allowPositionals: true,
       options: {
         size: { type: "string" },
+        format: { type: "string", default: "mp4" },
+        transparent: { type: "boolean", default: false },
         fps: { type: "string", default: "30" },
         voice: { type: "string" },
         "no-tts": { type: "boolean", default: false },
@@ -133,12 +157,14 @@ async function main() {
     const dir = positionals[0] || ".";
     const out = await renderProject(path.resolve(dir), {
       size: values.size,
+      format: values.format,
+      transparent: values.transparent,
       fps: Number(values.fps),
       voice: values.voice,
       noTts: values["no-tts"],
       chromePath: findChrome(),
     });
-    console.log(`Rendered successfully:\n  Video:    ${out.videoPath}\n  Subtitles:${out.srtPath}\n  Cover:    ${out.coverPath}`);
+    console.log(`Rendered successfully:\n  Output:   ${out.videoPath}\n  Subtitles:${out.srtPath}\n  Cover:    ${out.coverPath}`);
     if (out.overflowWarnings.length > 0) {
       console.warn(`Layout warnings (${out.overflowWarnings.length}):`, out.overflowWarnings);
     }
