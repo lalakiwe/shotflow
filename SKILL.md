@@ -18,7 +18,8 @@ It supports **[Google Flow](https://flow.google.com/) / Gemini Agent** cloud gen
 - `bin/shotflow.mjs`: Standalone Node.js engine CLI:
   - `shotflow init <dir> --format product-launch|narrated-explainer|vertical-short --look midnight|studio|editorial|blueprint --size 16:9|9:16|4:5|1:1 --lang en|zh-TW`
   - `shotflow capture <url> --out <dir>` (captures website hero screenshot, palette, fonts, and headings)
-  - `shotflow render <dir>` (word-synced `edge-tts` / macOS `say` + Playwright headless Chromium frame-by-frame rendering + DOM overflow check + FFmpeg muxing + BGM ducking → `out/final.mp4`, `out/subtitles.srt`, `out/cover.png`)
+  - `shotflow record <url> --out <dir> [--steps steps.json] [--duration 6]` (records browser walkthrough with animated cursor to MP4)
+  - `shotflow render <dir> [--format mp4|gif|mov] [--transparent]` (word-synced `edge-tts` / macOS `say` + Playwright headless Chromium frame-by-frame rendering + runtime Lucide/Rough.js/KaTeX/SFX assets + DOM overflow check + FFmpeg muxing + BGM ducking → `out/final.mp4`, `out/subtitles.srt`, `out/cover.png`)
   - `shotflow check <video.mp4> [--json] [--contact-sheet <out.jpg>]` (automated QC for black frames, freeze frames, audio loudness, and 4x3 visual contact sheet—works on any MP4 from Modes 1–5B)
   - `shotflow doctor` (verifies Node, FFmpeg, `edge-tts`, `yt-dlp`, and Chrome/Chromium)
 - `scripts/setup.sh`: Idempotent dependency checker and installer (`--check`, `--mode 5a`, `--mode 5b`, `--mode ref`, `--mode all`).
@@ -46,10 +47,14 @@ Before generating the full output, verify whether the user has provided:
    - `Mode 3`: First & Last Frame Images + Video Prompt *(Recommended for transition control in Google Flow)*
    - `Mode 4`: Google Flow Gemini Agent Batch Workflow *(Recommended for fast multi-shot batching via storyboard grid)*
    - `Mode 5A`: **Local Pure FFmpeg** *(No Google Flow — still keyframes + Ken Burns + local TTS + SRT → `final.mp4`)*
-   - `Mode 5B`: **ShotFlow Native Motion-Graphics Engine** *(No Google Flow — `shotflow init / capture / render / check` with word-synced TTS, HTML5/CSS/SVG layouts, DOM overflow check, and FFmpeg → `final.mp4`; **Recommended default for Track B Repo/PRD & WWDC-style product videos**)*
+   - `Mode 5B`: **ShotFlow Native Motion-Graphics Engine** *(No Google Flow — `shotflow init / capture / record / render / check` with word-synced TTS, HTML5/CSS/SVG layouts, runtime Lucide/Rough.js/KaTeX assets, DOM overflow check, and FFmpeg → `final.mp4` / `final.gif` / transparent `final.mov`; **Recommended default for Track B Repo/PRD & WWDC-style product videos**)*
 6. **Language**: **Always ask** which language to use for prompts, on-screen copy, and dialogue/voiceover. If omitted or default is chosen, **default to English**.
+7. **Target Model(s) (Ask & Recommend)**: **Always ask** the user to confirm which model(s) they want to use, and proactively recommend the best fit for their chosen mode:
+   - *Modes 1–4 (Google Flow)*: Recommend **Veo 3.1** (*Fast* for pilot testing / lower credit spend; *Quality* for final shots; supports native dialogue & Frames-to-Video) + **Imagen 4 / Nano Banana** for turnaround/keyframe/grid images (also adapt if the user picks another model like Kling, Seedance, Sora, or Runway).
+   - *Mode 5A (Local Pure FFmpeg)*: Recommend **Imagen 4 / Nano Banana** (or Flux/Midjourney) for still keyframes + **`edge-tts`** (`en-US-AndrewNeural` / `zh-TW-HsiaoChenNeural`, free) for narration, with macOS `say` offline fallback.
+   - *Mode 5B (ShotFlow Native Engine)*: No video diffusion model needed (renders natively via Playwright + FFmpeg); confirm TTS model—recommend **`edge-tts`** (free, word-synced timing) with macOS `say` fallback.
 
-> If any required parameter is missing, ask concisely in a single bulleted message before generating. Once confirmed (or if the user asks to proceed with defaults), output **all sections below in a single, complete response**.
+> If any required parameter (Segment Count, Aspect Ratio, Style, Mode, Language, or Target Model) is missing, ask concisely in a single bulleted message—including your recommended model(s)—before generating. Once confirmed (or if the user asks to proceed with defaults), output **all sections below in a single, complete response** tailored to the selected model(s).
 
 ## Pre-Flight Environment Setup (Modes 5A, 5B & Track C)
 
@@ -62,7 +67,7 @@ Whenever **Mode 5A**, **Mode 5B**, or **Track C** requires local execution:
 
 ### Step 0A. Repo / Spec / PRD Ingestion *(Track B Only)*
 
-1. **Inspect Primary Sources**: Read the provided repo (`README.md`, main entrypoints, architecture/feature modules, CLI/UI code, docs, or screenshots) or PRD/spec document thoroughly. If a live product URL is provided, optionally run `node bin/shotflow.mjs capture <url> --out <dir>/assets` to grab real screenshots, palette, and typography.
+1. **Inspect Primary Sources**: Read the provided repo (`README.md`, main entrypoints, architecture/feature modules, CLI/UI code, docs, or screenshots) or PRD/spec document thoroughly. If a live product URL is provided, optionally run `node bin/shotflow.mjs capture <url> --out <dir>/assets` (or `record`) to grab real screenshots, recordings, palette, and typography.
 2. **Extract Grounded Product Brief** *(strictly zero hallucination—every feature name, CLI command, API, metric, and UI label must come verbatim from the source)*: Problem Hook, Hero Reveal Line, Top 3–5 Verified Features, Concrete Proof / Demo Beats, and Closing CTA.
 3. **Keynote Narrative Arc (e.g., Apple WWDC Style)**: *Cold Open (Problem) → Hero Product Reveal → 3–4 Crisp Feature / Code / UI Beats → Summary Bento Grid → Clean Closing CTA*.
 
@@ -92,8 +97,8 @@ Always prefix each prompt or file block with its exact designated filename.
 - **Mode 5A (Local Pure FFmpeg)**: `p01.png`–`p[N].png` prompts + `edge-tts` commands (`a01.mp3`–`a[N].mp3`) + timed `subtitles.srt` + `./scripts/render_ffmpeg.sh <project_dir> <aspect_ratio>`.
 - **Mode 5B (ShotFlow Native Engine)**:
   1. Initialize project: `node bin/shotflow.mjs init <dir> --format <product-launch|narrated-explainer|vertical-short> --look <midnight|studio|editorial|blueprint> --size <16:9|9:16|4:5|1:1> --lang <en|zh-TW>`.
-  2. Populate `video.json` and `scenes.json` using native layouts (`hero`, `feature`, `code`, `bento`, `cta`) with `triggerWord` on each bullet/code line/card so elements animate on exact spoken words.
-  3. Render: `node bin/shotflow.mjs render <dir>` → outputs `out/final.mp4`, `out/subtitles.srt`, `out/cover.png` (and flags any DOM layout overflow warnings).
+  2. Populate `video.json` and `scenes.json` using native layouts (`hero`, `feature`, `code`, `bento`, `cta`), optional `icon` (Lucide), `formula` (KaTeX), `sketch: true` (Rough.js), `sfx` (`whoosh`/`pop`/`chime`), and `triggerWord` on each bullet/code line/card so elements animate on exact spoken words.
+  3. Render: `node bin/shotflow.mjs render <dir>` (or `--format gif` / `--format mov --transparent`) → outputs `out/final.mp4`, `out/subtitles.srt`, `out/cover.png` (and flags any DOM layout overflow warnings).
   4. **Mandatory QC Loop**: Run `node bin/shotflow.mjs check <dir>/out/final.mp4 --json --contact-sheet <dir>/out/sheet.jpg`, inspect any flagged black/freeze/loudness/overflow issues, fix `scenes.json`, and re-render until `passed: true`.
 
 ### 3. Packaging, Assembly & BGM Setup
@@ -105,6 +110,7 @@ Always prefix each prompt or file block with its exact designated filename.
 - **Zero Hallucination on Repo / PRD Inputs (Track B)**: Never invent features, benchmarks, UI labels, or CLI flags not verified in the source.
 - **Reference Video Cleanup & Cap (Track C)**: Cap at 100 frames / 2 fps; delete temp working directories after extracting Style DNA.
 - **Language Default**: Always confirm target language; default to **English**.
+- **Model Confirmation**: Always prompt the user to confirm their target model(s) and include a clear recommendation before generating.
 - **Zero-Text Rule (AI Diffusion Prompts)**: Forbid AI-rendered text in Modes 1–4 and 5A image prompts *(Mode 5B renders crisp typography natively via HTML/CSS)*.
 - **Credit & Confirmation Guardrail (Modes 1–4)**: Keep Google Flow Agent confirmation on **Always**; test `Shot_01` before batching.
 - **Local Setup & QC Loop (Modes 5A, 5B & Track C)**: Always run `./scripts/setup.sh --check` (or `shotflow doctor`) before local commands, and run `shotflow check` after rendering MP4s.
