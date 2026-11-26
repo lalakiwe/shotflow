@@ -129,15 +129,25 @@ if [[ -f "$PROJECT_DIR/bgm.mp3" ]]; then
   CURRENT="$WITH_BGM"
 fi
 
-# Optional SRT subtitle burn-in
+# Optional SRT subtitle burn-in (or soft mov_text track if FFmpeg lacks libass)
 FINAL_OUT="$PROJECT_DIR/final.mp4"
 if [[ -f "$PROJECT_DIR/subtitles.srt" ]]; then
-  echo "Burning in subtitles (subtitles.srt)..."
-  SRT_ESCAPED="${PROJECT_DIR}/subtitles.srt"
-  ffmpeg -y -v error -i "$CURRENT" \
-    -vf "subtitles='${SRT_ESCAPED}':force_style='FontSize=20,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,MarginV=60'" \
-    -c:v libx264 -pix_fmt yuv420p -c:a copy \
-    "$FINAL_OUT"
+  CURRENT_ABS="$(cd "$(dirname "$CURRENT")" && pwd)/$(basename "$CURRENT")"
+  if ffmpeg -filters 2>/dev/null | grep -qE "\bsubtitles\b"; then
+    echo "Burning in subtitles (subtitles.srt)..."
+    (
+      cd "$PROJECT_DIR"
+      ffmpeg -y -v error -i "$CURRENT_ABS" \
+        -vf "subtitles=subtitles.srt:force_style='FontSize=20,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,MarginV=60'" \
+        -c:v libx264 -pix_fmt yuv420p -c:a copy \
+        "final.mp4"
+    )
+  else
+    echo "FFmpeg 'subtitles' filter (libass) not built in; embedding subtitles.srt as soft mov_text track..."
+    ffmpeg -y -v error -i "$CURRENT_ABS" -i "$PROJECT_DIR/subtitles.srt" \
+      -c:v copy -c:a copy -c:s mov_text -metadata:s:s:0 language=eng \
+      "$FINAL_OUT"
+  fi
 else
   cp "$CURRENT" "$FINAL_OUT"
 fi
