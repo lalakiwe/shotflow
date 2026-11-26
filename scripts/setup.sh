@@ -2,13 +2,18 @@
 set -euo pipefail
 export PATH="/opt/homebrew/bin:/usr/local/bin:${SHOTFLOW_VENV_DIR:-$HOME/.shotflow-venv}/bin:$PATH"
 
-# ShotFlow Local Render Setup Script
-# Installs and verifies local dependencies for Mode 5A (FFmpeg + TTS) and Mode 5B (Code-Rendered Motion Graphics).
+# ShotFlow Local Render & Reference-Video Setup Script
+# Installs and verifies local dependencies for:
+#   - Mode 5A (FFmpeg + Python edge-tts)
+#   - Mode 5B (FFmpeg + Node.js / optional Remotion)
+#   - Track C / ref (FFmpeg + yt-dlp + Python 3 for reference video analysis)
+#
 # Usage:
 #   ./scripts/setup.sh --check
 #   ./scripts/setup.sh --mode 5a
-#   ./scripts/setup.sh --mode 5b
-#   ./scripts/setup.sh --mode all [--with-remotion]
+#   ./scripts/setup.sh --mode 5b [--with-remotion]
+#   ./scripts/setup.sh --mode ref
+#   ./scripts/setup.sh --mode all
 
 MODE="all"
 CHECK_ONLY=false
@@ -23,13 +28,14 @@ Usage:
   ./scripts/setup.sh [options]
 
 Options:
-  --mode <5a|5b|all>   Target workflow mode (default: all)
-                         5a  = FFmpeg + Python edge-tts (Images + Ken Burns + TTS + SRT -> MP4)
-                         5b  = FFmpeg + Node.js + Playwright/Remotion (Code-rendered -> MP4)
-                         all = Install dependencies for both 5a and 5b
-  --with-remotion      Also scaffold/verify Remotion CLI support for Mode 5b
-  --check              Check current environment without installing anything
-  -h, --help           Show this help message
+  --mode <5a|5b|ref|all>   Target workflow mode (default: all)
+                             5a  = FFmpeg + Python edge-tts (Images + Ken Burns + TTS + SRT -> MP4)
+                             5b  = FFmpeg + Node.js + Playwright/Remotion (Code-rendered -> MP4)
+                             ref = FFmpeg + yt-dlp + Python 3 (Reference video analysis, Track C)
+                             all = Install dependencies for 5a, 5b, and ref
+  --with-remotion          Also scaffold/verify Remotion CLI support for Mode 5b
+  --check                  Check current environment without installing anything
+  -h, --help               Show this help message
 EOF
 }
 
@@ -59,8 +65,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ "$MODE" != "5a" && "$MODE" != "5b" && "$MODE" != "all" ]]; then
-  echo "Invalid --mode: '$MODE'. Expected: 5a, 5b, or all." >&2
+if [[ "$MODE" != "5a" && "$MODE" != "5b" && "$MODE" != "ref" && "$MODE" != "all" ]]; then
+  echo "Invalid --mode: '$MODE'. Expected: 5a, 5b, ref, or all." >&2
   exit 1
 fi
 
@@ -85,18 +91,20 @@ check_env() {
   if has_cmd ffmpeg && has_cmd ffprobe; then
     print_status "ffmpeg" "true" "$(ffmpeg -version | head -n 1)"
   else
-    print_status "ffmpeg" "false" "Required for Mode 5A & 5B"
+    print_status "ffmpeg" "false" "Required for Mode 5A, 5B & Reference Video Analysis"
     missing=1
   fi
 
-  if [[ "$MODE" == "5a" || "$MODE" == "all" ]]; then
+  if [[ "$MODE" == "5a" || "$MODE" == "ref" || "$MODE" == "all" ]]; then
     if has_cmd python3; then
       print_status "python3" "true" "$(python3 --version)"
     else
-      print_status "python3" "false" "Required for edge-tts in Mode 5A"
+      print_status "python3" "false" "Required for Mode 5A (edge-tts) & Track C (analyze_ref_video.py)"
       missing=1
     fi
+  fi
 
+  if [[ "$MODE" == "5a" || "$MODE" == "all" ]]; then
     if [[ -x "$VENV_DIR/bin/edge-tts" ]]; then
       print_status "edge-tts" "true" "$VENV_DIR/bin/edge-tts"
     elif has_cmd edge-tts; then
@@ -107,6 +115,15 @@ check_env() {
       else
         print_status "edge-tts" "false" "Recommended neural TTS for Mode 5A"
       fi
+      missing=1
+    fi
+  fi
+
+  if [[ "$MODE" == "ref" || "$MODE" == "all" ]]; then
+    if has_cmd yt-dlp; then
+      print_status "yt-dlp" "true" "$(yt-dlp --version)"
+    else
+      print_status "yt-dlp" "false" "Required for analyzing remote video URLs (YouTube/TikTok/etc.)"
       missing=1
     fi
   fi
@@ -169,7 +186,7 @@ install_pkg() {
 
 echo "=== Installing ShotFlow dependencies (mode: $MODE) ==="
 
-# 1. FFmpeg (required for both 5A and 5B)
+# 1. FFmpeg (required for 5A, 5B, and ref)
 if ! has_cmd ffmpeg || ! has_cmd ffprobe; then
   echo "-> Installing ffmpeg..."
   install_pkg "ffmpeg" "ffmpeg"
@@ -193,7 +210,21 @@ if [[ "$MODE" == "5a" || "$MODE" == "all" ]]; then
   fi
 fi
 
-# 3. Mode 5B: Node.js / npm (+ optional Playwright / Remotion)
+# 3. Track C (ref): yt-dlp for remote reference videos
+if [[ "$MODE" == "ref" || "$MODE" == "all" ]]; then
+  if ! has_cmd python3; then
+    echo "-> Installing python3..."
+    install_pkg "python" "python3"
+  fi
+  if ! has_cmd yt-dlp; then
+    echo "-> Installing yt-dlp..."
+    install_pkg "yt-dlp" "yt-dlp"
+  else
+    echo "-> yt-dlp already installed ($(yt-dlp --version))."
+  fi
+fi
+
+# 4. Mode 5B: Node.js / npm + ShotFlow Native Engine deps (playwright-core)
 if [[ "$MODE" == "5b" || "$MODE" == "all" ]]; then
   if ! has_cmd node || ! has_cmd npm; then
     echo "-> Installing Node.js..."
@@ -202,8 +233,14 @@ if [[ "$MODE" == "5b" || "$MODE" == "all" ]]; then
     echo "-> Node.js already installed ($(node -v))."
   fi
 
+  REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+  if [[ -f "$REPO_ROOT/package.json" ]]; then
+    echo "-> Installing ShotFlow Native Engine npm dependencies (playwright-core)..."
+    (cd "$REPO_ROOT" && npm install --no-audit --no-fund)
+  fi
+
   if [[ "$WITH_REMOTION" == "true" ]]; then
-    echo "-> Checking Remotion / Playwright availability..."
+    echo "-> Checking Remotion availability..."
     npx --yes remotion --version || true
   fi
 fi

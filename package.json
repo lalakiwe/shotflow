@@ -1,0 +1,19 @@
+{
+  "name": "shotflow",
+  "version": "1.0.0",
+  "description": "AI short-video script, storyboard, reference-video analyzer, and standalone local MP4 rendering engine (FFmpeg + Playwright + edge-tts).",
+  "type": "module",
+  "bin": {
+    "shotflow": "bin/shotflow.mjs"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "playwright-core": "^1.52.0"
+  }
+}
