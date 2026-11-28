@@ -24,7 +24,7 @@ It supports **[Google Flow](https://flow.google.com/) / Gemini Agent** cloud gen
   - `shotflow doctor` (verifies Node, FFmpeg, `edge-tts`, `yt-dlp`, and Chrome/Chromium)
 - `scripts/setup.sh`: Idempotent dependency checker and installer (`--check`, `--mode 5a`, `--mode 5b`, `--mode ref`, `--mode all`).
 - `scripts/analyze_ref_video.py`: Track C reference-video analyzer (auto-scaled frames capped at 100 frames / 2 fps, optional `--start`/`--end`, plus time-synced captions).
-- `scripts/render_ffmpeg.sh`: Mode 5A pure-FFmpeg Ken Burns + TTS + BGM + SRT renderer (auto-falls back to soft `mov_text` subtitles when FFmpeg lacks `libass`).
+- `scripts/render_ffmpeg.sh`: Mode 5A pure-FFmpeg 4x-supersampled Ken Burns + TTS + BGM + SRT renderer (burns compact proportional subtitles via `libass` or macOS CoreGraphics PNG overlay via `scripts/render_subtitles.swift`).
 
 ## Input Track Detection (Automatic)
 
@@ -38,7 +38,7 @@ Automatically detect all applicable input tracks—do **not** ask the user to pi
 Before generating the full output, verify whether the user has provided:
 
 1. **Segment Count**: Required. Ask if not specified *(for Track B keynotes, suggest `6`–`8` beats; for Mode 4 grids, `9` pairs with 3x3; if Track C reference video has a clear beat count, propose matching it)*.
-2. **Duration per Segment**: **Do NOT ask.** Automatically allocate durations per segment based on narrative pacing (or matched to Track C reference cadence).
+2. **Duration per Segment**: **Do NOT ask.** Automatically allocate durations per segment based on narrative pacing (or matched to Track C reference cadence). For **Google Flow** (Modes 1–4), always use **whole-second integer durations** (e.g., `5s`, `6s`, `8s`—never decimals like `5.5s`, as Flow/Omni models require integer seconds).
 3. **Aspect Ratio**: Required (`9:16`, `16:9`, `4:5`, `1:1`—suggest `16:9` for WWDC/keynote videos or match Track C if unspecified). Ask if not specified.
 4. **Visual Style**: Required—*unless a Track C reference video already defines the target visual style*.
 5. **Generation Mode (`1`, `2`, `3`, `4`, `5A`, or `5B`)**: Ask if not specified:
@@ -51,8 +51,8 @@ Before generating the full output, verify whether the user has provided:
 6. **Language**: **Always ask** which language to use for prompts, on-screen copy, and dialogue/voiceover. If omitted or default is chosen, **default to English**.
 7. **Target Model(s) (Ask & Recommend)**: **Always ask** the user to confirm which model(s) they want to use, and proactively recommend the best fit for their chosen mode:
    - *Modes 1–4 (Google Flow)*: Recommend **Veo 3.1** (*Fast* for pilot testing / lower credit spend; *Quality* for final shots; supports native dialogue & Frames-to-Video) + **Imagen 4 / Nano Banana** for turnaround/keyframe/grid images (also adapt if the user picks another model like Kling, Seedance, Sora, or Runway).
-   - *Mode 5A (Local Pure FFmpeg)*: Recommend **Imagen 4 / Nano Banana** (or Flux/Midjourney) for still keyframes + **`edge-tts`** (`en-US-AndrewNeural` / `zh-TW-HsiaoChenNeural`, free) for narration, with macOS `say` offline fallback.
-   - *Mode 5B (ShotFlow Native Engine)*: No video diffusion model needed (renders natively via Playwright + FFmpeg); confirm TTS model—recommend **`edge-tts`** (free, word-synced timing) with macOS `say` fallback.
+   - *Mode 5A (Local Pure FFmpeg)*: Recommend **Imagen 4 / Nano Banana** (or Flux/Midjourney) for still keyframes + **`edge-tts`** (style-matched voice + `--rate`/`--pitch`, free) for narration, with macOS `say` offline fallback.
+   - *Mode 5B (ShotFlow Native Engine)*: No video diffusion model needed (renders natively via Playwright + FFmpeg); confirm TTS model—recommend **`edge-tts`** (free, word-synced timing, style-matched voice) with macOS `say` fallback.
 
 > If any required parameter (Segment Count, Aspect Ratio, Style, Mode, Language, or Target Model) is missing, ask concisely in a single bulleted message—including your recommended model(s)—before generating. Once confirmed (or if the user asks to proceed with defaults), output **all sections below in a single, complete response** tailored to the selected model(s).
 
@@ -86,6 +86,10 @@ Whenever **Mode 5A**, **Mode 5B**, or **Track C** requires local execution:
   - *Recurring characters (Track A)*: Front/back/side turnaround prompts (100–200+ words each) + **Fixed Appearance Anchor**.
   - *Product / repo / PRD presentations (Track B)*: **Brand & Design System Anchor** (palette, look preset `midnight`/`studio`/`editorial`/`blueprint`, typography, terminal/UI style).
 - **Unified Visual Spec**: Compact control block for Google Flow Agent Instructions (Modes 1–4) or `video.json` (Mode 5B).
+- **Voice & Tone Synchronization (Required for All Modes)**: Always align voice selection, pacing (`--rate`), and pitch (`--pitch`) with the visual style and emotional mood—never leave a flat/brisk default on a soft or emotional visual style:
+  - *Warm / Healing / Watercolor / Lifestyle*: Expressive, gentle voice (`en-US-AvaMultilingualNeural`, `ja-JP-NanamiNeural`, `zh-TW-HsiaoChenNeural`) with unhurried pacing (`--rate=-10%` to `-12%`) and soft pitch (`--pitch=-2Hz`).
+  - *Keynote / Product / Technical*: Clear, warm-confident voice (`en-US-AndrewMultilingualNeural` / `en-US-BrianMultilingualNeural`) at steady pacing (`--rate=+0%` to `+4%`).
+  - *High-Energy / Hook-Driven Short*: Upbeat, lively voice (`en-US-EmmaMultilingualNeural` / `en-US-GuyNeural`) at brisk pacing (`--rate=+6%` to `+10%`).
 
 ### 2. Storyboard, Prompts & Local Render Pipeline
 
@@ -96,7 +100,7 @@ Always prefix each prompt or file block with its exact designated filename.
 - **Mode 2**: `p01`–`p[N]` + `v01`–`v[N]`.
 - **Mode 3**: `p01-1`/`p01-2`–`p[N]-1`/`p[N]-2` (cross-segment continuity) + `v01`–`v[N]`.
 - **Mode 4 (Google Flow Gemini Agent Batch)**: `storyboard_grid` + `Shot_01`–`Shot_[N]` + 5-step **Gemini Agent Command Pack** (Analyze & Lock [0 credits], Pilot `Shot_01`, Batch `Shot_02`–`Shot_[N]`, Targeted QC Fix `_V02`/`_V03`, 5-Collection Organization).
-- **Mode 5A (Local Pure FFmpeg)**: `p01.png`–`p[N].png` prompts + `edge-tts` commands (`a01.mp3`–`a[N].mp3`) + timed `subtitles.srt` + `./scripts/render_ffmpeg.sh <project_dir> <aspect_ratio>`.
+- **Mode 5A (Local Pure FFmpeg)**: `p01.png`–`p[N].png` prompts + style-matched `edge-tts` commands (`--voice`, `--rate`, `--pitch` → `a01.mp3`–`a[N].mp3`) + timed `subtitles.srt` (set `SHOTFLOW_BRAND_TERMS="BrandName"` so brand names are bolded and highlighted in subtitles) + `./scripts/render_ffmpeg.sh <project_dir> <aspect_ratio>`.
 - **Mode 5B (ShotFlow Native Engine)**:
   1. Initialize project: `node bin/shotflow.mjs init <dir> --format <product-launch|narrated-explainer|vertical-short> --look <midnight|studio|editorial|blueprint> --size <16:9|9:16|4:5|1:1> --lang <en|zh-TW>`.
   2. Populate `video.json` and `scenes.json` using native layouts (`hero`, `feature`, `code`, `bento`, `cta`), optional `icon` (Lucide), `formula` (KaTeX), `sketch: true` (Rough.js), `sfx` (`whoosh`/`pop`/`chime`), and `triggerWord` on each bullet/code line/card so elements animate on exact spoken words.
